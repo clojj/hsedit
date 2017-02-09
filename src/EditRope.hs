@@ -53,8 +53,7 @@ newtype TokenizedEvent a = Tokens a
 type Loc = (Int, Int)
 
 data Operation =
-  NoOp
-  | InsertChar Char Loc
+  InsertChar Char Loc
   | DeleteChar Loc
   | MoveCursor Loc
   | Undo
@@ -62,7 +61,6 @@ data Operation =
 
 instance Show Operation where
     show op = case op of
-      NoOp                  -> "NoOp"
       InsertChar _ position -> "InsertChar " ++ show position
       DeleteChar position   -> "DeleteChar " ++ show position
       MoveCursor d          -> "MoveCursor " ++ show d
@@ -111,7 +109,7 @@ editor ::
        -- ^ The initial content
        -> (String -> IO ())
        -> Editor n
-editor name draw s sendSource = Editor s draw name (0, 0) [] [] sendSource
+editor name draw s = Editor s draw name (0, 0) [] []
 
 -- TODO orphane instance !
 instance TextWidth Y.YiString where
@@ -179,60 +177,60 @@ handleEditorEvent e ed = do
                   -- EvKey (KChar 'k') [MCtrl] -> Z.killToEOL
                   -- EvKey (KChar 'u') [MCtrl] -> Z.killToBOL
 
-                  VtyEvent (EvKey (KChar 'z') [MCtrl])                              -> (Undo, NoOp, NoOp)
+                  VtyEvent (EvKey (KChar 'z') [MCtrl])                              -> (Just Undo, Nothing, Nothing)
 
-                  VtyEvent (EvKey KDel [])                                          -> (DeleteChar cp, NoOp, NoOp)
-
-                  -- TODO enable move to next line
-                  VtyEvent (EvKey KBS [])                                           -> (DeleteChar (max 0 (column - 1), line), MoveCursor (max 0 (column - 1), line), NoOp)
-
-                  VtyEvent (EvKey KEnter [])                                        -> (InsertChar '\n' cp, MoveCursor (0, line + 1), NoOp)
-
-                  VtyEvent (EvKey (KChar c) []) | c /= '\t'                         -> (InsertChar c cp, MoveCursor (column + 1, line), NoOp)
-
-                  VtyEvent (EvKey KUp [])       | line > 0                          -> (NoOp, MoveCursor (min (getLineLength (line - 1) contents) column, line - 1), NoOp)
-                  VtyEvent (EvKey KDown [])     | line < Y.countNewLines contents   -> (NoOp, MoveCursor (min (getLineLength (line + 1) contents) column, line + 1), NoOp)
+                  VtyEvent (EvKey KDel [])      | Y.length contents > 0             -> (Just $ DeleteChar cp, Nothing, Nothing)
 
                   -- TODO enable move to next line
-                  VtyEvent (EvKey KLeft [])                                         -> (NoOp, MoveCursor (max 0 (column - 1), line), NoOp)
+                  VtyEvent (EvKey KBS [])       | cp /= (0, 0)                      -> (Just $ DeleteChar (max 0 (column - 1), line), Just $ MoveCursor (max 0 (column - 1), line), Nothing)
+
+                  VtyEvent (EvKey KEnter [])                                        -> (Just $ InsertChar '\n' cp, Just $ MoveCursor (0, line + 1), Nothing)
+
+                  VtyEvent (EvKey (KChar c) []) | c /= '\t'                         -> (Just $ InsertChar c cp, Just $ MoveCursor (column + 1, line), Nothing)
+
+                  VtyEvent (EvKey KUp [])       | line > 0                          -> (Nothing, Just $ MoveCursor (min (getLineLength (line - 1) contents) column, line - 1), Nothing)
+                  VtyEvent (EvKey KDown [])     | line < Y.countNewLines contents   -> (Nothing, Just $ MoveCursor (min (getLineLength (line + 1) contents) column, line + 1), Nothing)
+
                   -- TODO enable move to next line
-                  VtyEvent (EvKey KRight [])                                        -> (NoOp, MoveCursor (min (getLineLength line contents) (column + 1), line), NoOp)
+                  VtyEvent (EvKey KLeft [])                                         -> (Nothing, Just $ MoveCursor (max 0 (column - 1), line), Nothing)
+                  -- TODO enable move to next line
+                  VtyEvent (EvKey KRight [])                                        -> (Nothing, Just $ MoveCursor (min (getLineLength line contents) (column + 1), line), Nothing)
 
-                  AppEvent (Tokens tokens) -> (NoOp, NoOp, HandleTokens tokens)
+                  AppEvent (Tokens tokens) -> (Nothing, Nothing, Just $ HandleTokens tokens)
 
-                  _ -> (NoOp, NoOp, NoOp)
+                  _ -> (Nothing, Nothing, Nothing)
 
             ed' = applyComposed [contentOp, cursorOp, metaOp] ed
 
         -- liftIO $ hPutStrLn stderr $ "operations: " ++ show (ed' ^. editOperationsL)
         case contentOp of
-          NoOp -> return ed'
+          Nothing -> return ed'
           -- TODO call lexer only for actual changes to contents, not just change-operations
-          _    -> sendToLexer $ consOp contentOp ed'
+          Just op -> sendToLexer $ consOp ed' op
 
 sendToLexer :: Editor n -> EventM n (Editor n)
 sendToLexer ed = do
   liftIO $ editSendSource ed $ (Y.toString . editContents) ed
   return ed
 
-consOp :: Operation -> Editor n -> Editor n
-consOp op e = e & editOperationsL %~ (\l -> op : l)
+consOp :: Editor n -> Operation -> Editor n
+consOp e op = e & editOperationsL %~ (\l -> op : l)
 
-applyComposed :: [Operation] -> Editor n -> Editor n
+applyComposed :: [Maybe Operation] -> Editor n -> Editor n
 applyComposed fs ed = foldl' foldOperation ed fs
 
-foldOperation :: Editor n -> Operation -> Editor n
+foldOperation :: Editor n -> Maybe Operation -> Editor n
 foldOperation e op =
   case op of
-    NoOp                   -> e & id
     -- changing contents
-    InsertChar ch position -> e & insertCh ch position
-    DeleteChar position    -> e & deleteCh position
-    Undo                   -> e & id -- TODO
+    Just (InsertChar ch position) -> e & insertCh ch position
+    Just (DeleteChar position)    -> e & deleteCh position
+    Just Undo                     -> e & id -- TODO
     -- changing cursor
-    MoveCursor d           -> e & moveCursor d
+    Just (MoveCursor d)           -> e & moveCursor d
     -- changing meta
-    HandleTokens tokens    -> e & handleTokens tokens
+    Just (HandleTokens tokens)    -> e & handleTokens tokens
+    _                             -> e
 
 
 -- | The attribute assigned to the editor when it does not have focus.
