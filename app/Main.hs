@@ -1,53 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes        #-}
+{-# LANGUAGE TemplateHaskell   #-}
 module Main where
 
-import Lens.Micro
-import Lens.Micro.TH
-import qualified Graphics.Vty as V
+import qualified Brick.AttrMap          as A
+import           Brick.BChan
+import qualified Brick.Focus            as F
+import qualified Brick.Main             as M
+import           Brick.Types            (BrickEvent (..), CursorLocation,
+                                         EventM, Next, Widget,
+                                         handleEventLensed)
+import           Brick.Util             (on)
+import qualified Brick.Widgets.Center   as C
+import           Brick.Widgets.Core     (hLimit, str, vLimit, (<+>), (<=>))
+import qualified Graphics.Vty           as V
+import           Lens.Micro
+import           Lens.Micro.TH
 
-import qualified Brick.Main as M
--- import qualified Brick.Types as T
-import Brick.Types
-  ( Widget
-  , Next
-  , EventM
-  , BrickEvent(..)
-  , CursorLocation
-  , handleEventLensed
-  )
-import Brick.Widgets.Core
-  ( (<+>)
-  , (<=>)
-  , hLimit
-  , vLimit
-  , str
-  )
-import qualified Brick.Widgets.Center as C
-import qualified Brick.AttrMap as A
-import qualified Brick.Focus as F
-import Brick.Util (on)
-import Brick.BChan
+import qualified EditRope               as E
+import qualified Yi.Rope                as Y
 
-import qualified EditRope as E
-import qualified Yi.Rope as Y
+import           ErrUtils               (mkPlainErrMsg)
+import           FastString             (mkFastString)
+import           GHC
+import           GHC.Paths              (libdir)
+import           Lexer
+import qualified MonadUtils             as GMU
+import           SrcLoc
+import           StringBuffer
 
-import ErrUtils (mkPlainErrMsg)
-import FastString (mkFastString)
-import GHC
-import GHC.Paths (libdir)
-import Lexer
-import qualified MonadUtils as GMU
-import SrcLoc
-import StringBuffer
+import           Control.Concurrent
+import           Control.Monad
+import           Control.Monad.IO.Class
 
-import Control.Concurrent
-import Control.Monad
-import Control.Monad.IO.Class
-
-import System.IO
-import qualified Control.FoldDebounce as Fdeb
+import qualified Control.FoldDebounce   as Fdeb
+import           System.IO
 
 
 data EditorName =
@@ -56,8 +43,8 @@ data EditorName =
 
 data St =
     St { _focusRing :: F.FocusRing EditorName
-       , _edit1 :: E.Editor EditorName
-       , _edit2 :: E.Editor EditorName
+       , _edit1     :: E.Editor EditorName
+       , _edit2     :: E.Editor EditorName
        }
 makeLenses ''St
 
@@ -92,7 +79,7 @@ handleInEditor st e =
   M.continue =<< case F.focusGetCurrent (st ^. focusRing) of
        Just Edit1 -> handleEventLensed st edit1 E.handleEditorEvent e
        Just Edit2 -> handleEventLensed st edit2 E.handleEditorEvent e
-       Nothing -> return st
+       Nothing    -> return st
 
 initialState :: (String -> IO ()) -> St
 initialState sendSource =

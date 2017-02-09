@@ -1,3 +1,3 @@
 # hsedit
 
-add description of hsedit here
+Yet another haskell-editor, based on brick (terminal UI)

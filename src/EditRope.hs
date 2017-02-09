@@ -1,7 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TemplateHaskell       #-}
 -- The editor's 'HandleEvent' instance handles a set of basic input
 -- events that should suffice for most purposes; see the source for a
 -- complete list.
@@ -28,22 +28,22 @@ module EditRope
   )
 where
 
-import Data.Monoid
-import Lens.Micro
-import Graphics.Vty (Event(..), Key(..), Modifier(..))
+import           Data.Monoid
+import           Graphics.Vty           (Event (..), Key (..), Modifier (..))
+import           Lens.Micro
 
-import Data.List
-import Data.Maybe
-import qualified Yi.Rope as Y
-import qualified Graphics.Vty as V
+import           Data.List
+import           Data.Maybe
+import qualified Graphics.Vty           as V
+import qualified Yi.Rope                as Y
 
-import Brick.Types
-import Brick.Widgets.Core
-import Brick.AttrMap
+import           Brick.AttrMap
+import           Brick.Types
+import           Brick.Widgets.Core
 
-import GHC
+import           GHC
 
-import Control.Monad.IO.Class
+import           Control.Monad.IO.Class
 
 
 
@@ -62,12 +62,12 @@ data Operation =
 
 instance Show Operation where
     show op = case op of
-      NoOp -> "NoOp"
+      NoOp                  -> "NoOp"
       InsertChar _ position -> "InsertChar " ++ show position
-      DeleteChar position -> "DeleteChar " ++ show position
-      MoveCursor d -> "MoveCursor " ++ show d
-      Undo -> "Undo"
-      HandleTokens tokens -> "HandleTokens " ++ concatMap showToken tokens
+      DeleteChar position   -> "DeleteChar " ++ show position
+      MoveCursor d          -> "MoveCursor " ++ show d
+      Undo                  -> "Undo"
+      HandleTokens tokens   -> "HandleTokens " ++ concatMap showToken tokens
 
 showToken :: GenLocated SrcSpan Token -> String
 showToken t = "\nsrcLoc: " ++ srcloc ++ "\ntok: " ++ tok ++ "\n"
@@ -86,18 +86,18 @@ showToken t = "\nsrcLoc: " ++ srcloc ++ "\ntok: " ++ tok ++ "\n"
 -- * Arrow keys: move cursor
 -- * Enter: break the current line at the cursor position
 data Editor n =
-    Editor { editContents :: Y.YiString
+    Editor { editContents     :: Y.YiString
            -- ^ The contents of the editor
            , editDrawContents :: Y.YiString -> Widget n
            -- ^ The function the editor uses to draw its contents
-           , editorName :: n
+           , editorName       :: n
            -- ^ The name of the editor
-           , editCursor :: Loc
+           , editCursor       :: Loc
            -- TODO undo will be inverse of operation, depending on increment/decrement of index into this list while un- or re-doing
-           , editOperations :: [Operation]
+           , editOperations   :: [Operation]
            -- TODO render tokens
-           , editTokens :: [Located Token]
-           , editSendSource :: String -> IO ()
+           , editTokens       :: [Located Token]
+           , editSendSource   :: String -> IO ()
            }
 suffixLenses ''Editor
 
@@ -170,7 +170,7 @@ handleEditorEvent :: BrickEvent n (TokenizedEvent [Located Token]) -> Editor n -
 handleEditorEvent e ed = do
         let cp@(column, line) = ed ^. editCursorL
             contents = editContents ed
-            
+
             -- TODO refactor NoOp to Maybe Op
             (contentOp, cursorOp, metaOp) = case e of
                   -- EvKey (KChar 'a') [MCtrl] -> Z.gotoBOL
@@ -182,12 +182,12 @@ handleEditorEvent e ed = do
                   VtyEvent (EvKey (KChar 'z') [MCtrl])                              -> (Undo, NoOp, NoOp)
 
                   VtyEvent (EvKey KDel [])                                          -> (DeleteChar cp, NoOp, NoOp)
-                  
+
                   -- TODO enable move to next line
                   VtyEvent (EvKey KBS [])                                           -> (DeleteChar (max 0 (column - 1), line), MoveCursor (max 0 (column - 1), line), NoOp)
-                  
+
                   VtyEvent (EvKey KEnter [])                                        -> (InsertChar '\n' cp, MoveCursor (0, line + 1), NoOp)
-                  
+
                   VtyEvent (EvKey (KChar c) []) | c /= '\t'                         -> (InsertChar c cp, MoveCursor (column + 1, line), NoOp)
 
                   VtyEvent (EvKey KUp [])       | line > 0                          -> (NoOp, MoveCursor (min (getLineLength (line - 1) contents) column, line - 1), NoOp)
@@ -197,24 +197,24 @@ handleEditorEvent e ed = do
                   VtyEvent (EvKey KLeft [])                                         -> (NoOp, MoveCursor (max 0 (column - 1), line), NoOp)
                   -- TODO enable move to next line
                   VtyEvent (EvKey KRight [])                                        -> (NoOp, MoveCursor (min (getLineLength line contents) (column + 1), line), NoOp)
-                  
+
                   AppEvent (Tokens tokens) -> (NoOp, NoOp, HandleTokens tokens)
 
                   _ -> (NoOp, NoOp, NoOp)
 
             ed' = applyComposed [contentOp, cursorOp, metaOp] ed
-              
+
         -- liftIO $ hPutStrLn stderr $ "operations: " ++ show (ed' ^. editOperationsL)
         case contentOp of
           NoOp -> return ed'
           -- TODO call lexer only for actual changes to contents, not just change-operations
-          _ -> sendToLexer $ consOp contentOp ed'
+          _    -> sendToLexer $ consOp contentOp ed'
 
 sendToLexer :: Editor n -> EventM n (Editor n)
 sendToLexer ed = do
   liftIO $ editSendSource ed $ (Y.toString . editContents) ed
   return ed
-  
+
 consOp :: Operation -> Editor n -> Editor n
 consOp op e = e & editOperationsL %~ (\l -> op : l)
 
@@ -224,15 +224,15 @@ applyComposed fs ed = foldl' foldOperation ed fs
 foldOperation :: Editor n -> Operation -> Editor n
 foldOperation e op =
   case op of
-    NoOp -> e & id
+    NoOp                   -> e & id
     -- changing contents
     InsertChar ch position -> e & insertCh ch position
-    DeleteChar position -> e & deleteCh position
-    Undo -> e & id -- TODO
+    DeleteChar position    -> e & deleteCh position
+    Undo                   -> e & id -- TODO
     -- changing cursor
-    MoveCursor d -> e & moveCursor d
+    MoveCursor d           -> e & moveCursor d
     -- changing meta
-    HandleTokens tokens -> e & handleTokens tokens
+    HandleTokens tokens    -> e & handleTokens tokens
 
 
 -- | The attribute assigned to the editor when it does not have focus.
