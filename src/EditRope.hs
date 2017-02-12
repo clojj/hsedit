@@ -1,12 +1,15 @@
+{-# LANGUAGE DeriveDataTypeable    #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
+
 -- The editor's 'HandleEvent' instance handles a set of basic input
 -- events that should suffice for most purposes; see the source for a
 -- complete list.
 module EditRope
-  ( Editor(editContents, editorName, editDrawContents)
+  ( Editor(editContents, editorName)
   -- * Constructing an editor
   , editor
   -- * Reading editor contents
@@ -18,7 +21,6 @@ module EditRope
   , applyComposed
   -- * Lenses for working with editors
   , editContentsL
-  , editDrawContentsL
   -- * Rendering editors
   , renderEditor
   -- * Attributes
@@ -41,10 +43,10 @@ import           Brick.AttrMap
 import           Brick.Types
 import           Brick.Widgets.Core
 
-import           GHC
-
 import           Control.Monad.IO.Class
-
+import           Data.Data
+import qualified GHC
+import qualified Lexer                  as GHC
 
 
 newtype TokenizedEvent a = Tokens a
@@ -57,7 +59,7 @@ data Operation =
   | DeleteChar Loc
   | MoveCursor Loc
   | Undo
-  | HandleTokens [Located Token]
+  | HandleTokens [GHC.Located GHC.Token]
 
 instance Show Operation where
     show op = case op of
@@ -67,11 +69,18 @@ instance Show Operation where
       Undo                  -> "Undo"
       HandleTokens tokens   -> "HandleTokens " ++ concatMap showToken tokens
 
-showToken :: GenLocated SrcSpan Token -> String
+showToken :: GHC.GenLocated GHC.SrcSpan GHC.Token -> String
 showToken t = "\nsrcLoc: " ++ srcloc ++ "\ntok: " ++ tok ++ "\n"
   where
-    srcloc = show $ getLoc t
-    tok = show $ unLoc t
+    srcloc = show $ GHC.getLoc t
+    tok = show $ GHC.unLoc t
+
+-- Data, Typeable for GHC.Token
+deriving instance Data GHC.Token
+deriving instance Typeable GHC.Token
+
+tokenAsString :: GHC.Token -> String
+tokenAsString = show . toConstr
 
 -- | Editor state.  Editors support the following events by default:
 --
@@ -84,18 +93,16 @@ showToken t = "\nsrcLoc: " ++ srcloc ++ "\ntok: " ++ tok ++ "\n"
 -- * Arrow keys: move cursor
 -- * Enter: break the current line at the cursor position
 data Editor n =
-    Editor { editContents     :: Y.YiString
+    Editor { editContents   :: Y.YiString
            -- ^ The contents of the editor
-           , editDrawContents :: Y.YiString -> Widget n
-           -- ^ The function the editor uses to draw its contents
-           , editorName       :: n
+           , editorName     :: n
            -- ^ The name of the editor
-           , editCursor       :: Loc
+           , editCursor     :: Loc
            -- TODO undo will be inverse of operation, depending on increment/decrement of index into this list while un- or re-doing
-           , editOperations   :: [Operation]
+           , editOperations :: [Operation]
            -- TODO render tokens
-           , editTokens       :: [Located Token]
-           , editSendSource   :: String -> IO ()
+           , editTokens     :: [GHC.Located GHC.Token]
+           , editSendSource :: String -> IO ()
            }
 suffixLenses ''Editor
 
@@ -103,13 +110,11 @@ suffixLenses ''Editor
 editor ::
        n
        -- ^ The editor's name (must be unique)
-       -> (Y.YiString -> Widget n)
-       -- ^ The content rendering function
        -> Y.YiString
        -- ^ The initial content
        -> (String -> IO ())
        -> Editor n
-editor name draw s = Editor s draw name (0, 0) [] []
+editor name s = Editor s name (0, 0) [] []
 
 -- TODO orphane instance !
 instance TextWidth Y.YiString where
@@ -131,7 +136,7 @@ instance Named (Editor n) n where
 
 
 -- TODO
-handleTokens :: [Located Token] -> (Editor n -> Editor n)
+handleTokens :: [GHC.Located GHC.Token] -> (Editor n -> Editor n)
 handleTokens tokens = editTokensL .~ tokens
 
 moveCursor :: Loc -> (Editor n -> Editor n)
@@ -164,7 +169,7 @@ deleteCh position = editContentsL %~ deleteChar position
 getLineLength :: Int -> Y.YiString -> Int
 getLineLength l = Y.length . Y.takeWhile (/= '\n') . snd . Y.splitAtLine l
 
-handleEditorEvent :: BrickEvent n (TokenizedEvent [Located Token]) -> Editor n -> EventM n (Editor n)
+handleEditorEvent :: BrickEvent n (TokenizedEvent [GHC.Located GHC.Token]) -> Editor n -> EventM n (Editor n)
 handleEditorEvent e ed = do
         let cp@(column, line) = ed ^. editCursorL
             contents = editContents ed
@@ -263,16 +268,23 @@ renderEditor focus e =
         cursorLoc = Location (textWidth $ Y.toString toLeft, line)
         -- atChar = charAtCursor cp $ e ^. editContentsL
         atCharWidth = 1 -- maybe 1 textWidth atChar
-    in withAttr (if focus then editFocusedAttr else editAttr) $
+
+    in withAttr (attrName "ITinteger") $
        viewport (e^.editorNameL) Both $
        clickable (e^.editorNameL) $
        (if focus then showCursor (e^.editorNameL) cursorLoc else id) $
        visibleRegion cursorLoc (atCharWidth, 1) $
-       e^.editDrawContentsL $
-       getEditContents e
+       tokens $ getEditContents e
 
 -- charAtCursor :: (Int, Int) -> Y.YiString -> Maybe String
 -- charAtCursor (column, line) s =
 --   let toRight = snd $ Y.splitAt column (snd $ Y.splitAtLine line s)
 --   in fmap (replicate 1) (Y.head toRight)
+
+tokens :: Y.YiString -> Widget n
+tokens y =
+    Widget Fixed Fixed $ do
+      c <- getContext
+      -- TODO: (see Brick.Widget.Core str)  return $ emptyResult & imageL .~ (V.vertCat lineImgs)
+      return $ emptyResult & imageL .~ V.text' (c ^. attrL) (Y.toText y)
 

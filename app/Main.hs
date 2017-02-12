@@ -5,11 +5,10 @@ module Main where
 
 import qualified Brick.AttrMap          as A
 import           Brick.BChan
-import qualified Brick.Focus            as F
 import qualified Brick.Main             as M
 import           Brick.Types            (BrickEvent (..), CursorLocation,
-                                         EventM, Next, Widget,
-                                         handleEventLensed)
+                                         EventM, Next, Widget (..), attrL,
+                                         emptyResult, handleEventLensed)
 import           Brick.Util             (on)
 import qualified Brick.Widgets.Center   as C
 import           Brick.Widgets.Core     (hLimit, str, vLimit, (<+>), (<=>))
@@ -36,71 +35,50 @@ import           Control.Monad.IO.Class
 import qualified Control.FoldDebounce   as Fdeb
 import           System.IO
 
-
 data EditorName =
   Edit1 | Edit2
   deriving (Ord, Show, Eq)
 
 data St =
-    St { _focusRing :: F.FocusRing EditorName
-       , _edit1     :: E.Editor EditorName
-       , _edit2     :: E.Editor EditorName
+    St { _edit1     :: E.Editor EditorName
        }
 makeLenses ''St
 
 drawUI :: St -> [Widget EditorName]
 drawUI st = [ui]
     where
-        e1 = F.withFocusRing (st^.focusRing) E.renderEditor (st^.edit1)
-        e2 = F.withFocusRing (st^.focusRing) E.renderEditor (st^.edit2)
-
-        ui = C.center $
-            (str "Input 1 (unlimited): " <+> hLimit 30 (vLimit 5 e1)) <=>
-            str " " <=>
-            (str "Input 2 (limited to 2 lines): " <+> hLimit 30 (vLimit 2 e2)) <=>
-            str " " <=>
-            str "Press Tab to switch between editors, Esc to quit."
+        e1 = E.renderEditor True (st^.edit1)
+        ui = C.center (str "Input 1 (unlimited): " <+> e1)
 
 appEvent :: St -> BrickEvent EditorName (E.TokenizedEvent [GHC.Located GHC.Token]) -> EventM EditorName (Next St)
 appEvent st e =
     case e of
-        VtyEvent (V.EvKey V.KEsc []) -> M.halt st
-        VtyEvent (V.EvKey (V.KChar '\t') []) -> M.continue $ st & focusRing %~ F.focusNext
-        VtyEvent (V.EvKey V.KBackTab []) -> M.continue $ st & focusRing %~ F.focusPrev
+        VtyEvent (V.EvKey V.KEsc [])   -> M.halt st
 
         appEvt@(AppEvent (E.Tokens _)) -> handleInEditor st appEvt
 
         vtyEv@(VtyEvent (V.EvKey _ _)) -> handleInEditor st vtyEv
 
-        _ -> M.continue st
+        _                              -> M.continue st
 
 handleInEditor :: St -> BrickEvent EditorName (E.TokenizedEvent [GHC.Located GHC.Token]) -> EventM EditorName (Next St)
 handleInEditor st e =
-  M.continue =<< case F.focusGetCurrent (st ^. focusRing) of
-       Just Edit1 -> handleEventLensed st edit1 E.handleEditorEvent e
-       Just Edit2 -> handleEventLensed st edit2 E.handleEditorEvent e
-       Nothing    -> return st
+  M.continue =<< handleEventLensed st edit1 E.handleEditorEvent e
 
 initialState :: (String -> IO ()) -> St
 initialState sendSource =
-    St (F.focusRing [Edit1, Edit2])
-       -- TODO build yiStr function for rendering Y.YiString
-       (E.editor Edit1 (str . Y.toString) "edit1" sendSource)
-       (E.editor Edit2 (str . Y.toString) "edit2" sendSource)
+    St (E.editor Edit1 "edit1" sendSource)
 
 theMap :: A.AttrMap
 theMap = A.attrMap V.defAttr
-    [ (E.editAttr,                   V.white `on` V.blue)
-    , (E.editFocusedAttr,            V.black `on` V.yellow)
+    [ (E.editAttr, V.white `on` V.black)
+     ,(A.attrName "ITinteger", V.withStyle (V.green `on` V.black) V.bold)
     ]
-
-appCursor :: St -> [CursorLocation EditorName] -> Maybe (CursorLocation EditorName)
-appCursor = F.focusRingCursor (^.focusRing)
 
 theApp :: M.App St (E.TokenizedEvent [GHC.Located GHC.Token]) EditorName
 theApp =
     M.App { M.appDraw = drawUI
-          , M.appChooseCursor = appCursor
+          , M.appChooseCursor = M.showFirstCursor
           , M.appHandleEvent = appEvent
           , M.appStartEvent = return
           , M.appAttrMap = const theMap
@@ -123,8 +101,7 @@ main = do
 
   putStrLn "In input 1 you entered:\n"
   putStrLn $ Y.toString $ E.getEditContents $ st^.edit1
-  putStrLn "In input 2 you entered:\n"
-  putStrLn $ Y.toString $ E.getEditContents $ st^.edit2
+
 
 startGhc :: BChan (E.TokenizedEvent [Located Token]) -> MVar String -> IO ()
 startGhc eventChannel lexerChannel = do
