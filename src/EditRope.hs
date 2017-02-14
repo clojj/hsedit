@@ -48,6 +48,7 @@ import           Data.Data
 import qualified GHC
 import qualified Lexer                  as GHC
 
+import           Control.DeepSeq
 
 newtype TokenizedEvent a = Tokens a
   deriving Show
@@ -67,7 +68,7 @@ instance Show Operation where
       DeleteChar position   -> "DeleteChar " ++ show position
       MoveCursor d          -> "MoveCursor " ++ show d
       Undo                  -> "Undo"
-      HandleTokens tokens   -> "HandleTokens " ++ concatMap showToken tokens
+      HandleTokens ts       -> "HandleTokens " ++ concatMap showToken ts
 
 showToken :: GHC.GenLocated GHC.SrcSpan GHC.Token -> String
 showToken t = "\nsrcLoc: " ++ srcloc ++ "\ntok: " ++ tok ++ "\n"
@@ -98,9 +99,9 @@ data Editor n =
            , editorName     :: n
            -- ^ The name of the editor
            , editCursor     :: Loc
-           -- TODO undo will be inverse of operation, depending on increment/decrement of index into this list while un- or re-doing
+           -- TODO: undo will be inverse of operation, depending on increment/decrement of index into this list while un- or re-doing
            , editOperations :: [Operation]
-           -- TODO render tokens
+           -- TODO: render tokens
            , editTokens     :: [GHC.Located GHC.Token]
            , editSendSource :: String -> IO ()
            }
@@ -137,7 +138,7 @@ instance Named (Editor n) n where
 
 -- TODO
 handleTokens :: [GHC.Located GHC.Token] -> (Editor n -> Editor n)
-handleTokens tokens = editTokensL .~ tokens
+handleTokens ts = editTokensL .~ ts
 
 moveCursor :: Loc -> (Editor n -> Editor n)
 moveCursor (column, line) =
@@ -201,7 +202,7 @@ handleEditorEvent e ed = do
                   -- TODO enable move to next line
                   VtyEvent (EvKey KRight [])                                        -> (Nothing, Just $ MoveCursor (min (getLineLength line contents) (column + 1), line), Nothing)
 
-                  AppEvent (Tokens tokens) -> (Nothing, Nothing, Just $ HandleTokens tokens)
+                  AppEvent (Tokens ts) -> (Nothing, Nothing, Just $ HandleTokens ts)
 
                   _ -> (Nothing, Nothing, Nothing)
 
@@ -234,7 +235,7 @@ foldOperation e op =
     -- changing cursor
     Just (MoveCursor d)           -> e & moveCursor d
     -- changing meta
-    Just (HandleTokens tokens)    -> e & handleTokens tokens
+    Just (HandleTokens ts)        -> e & handleTokens ts
     _                             -> e
 
 
@@ -265,15 +266,17 @@ renderEditor focus e =
     let cp@(column, line) = e ^. editCursorL
         contents = e ^. editContentsL
         toLeft = Y.take column $ snd $ Y.splitAtLine line contents
-        cursorLoc = Location (textWidth $ Y.toString toLeft, line)
+        cursorLoc = Location (Y.length toLeft, line)
+        -- cursorLoc = Location (textWidth $ Y.toString toLeft, line)
         -- atChar = charAtCursor cp $ e ^. editContentsL
-        atCharWidth = 1 -- maybe 1 textWidth atChar
+        -- atCharWidth = maybe 1 textWidth atChar
 
     in withAttr (attrName "ITinteger") $
        viewport (e^.editorNameL) Both $
-       clickable (e^.editorNameL) $
+      --  clickable (e^.editorNameL) $
        (if focus then showCursor (e^.editorNameL) cursorLoc else id) $
-       visibleRegion cursorLoc (atCharWidth, 1) $
+       visibleRegion cursorLoc (1, 1) $
+    --    visibleRegion cursorLoc (atCharWidth, 1) $
        tokens $ getEditContents e
 
 -- charAtCursor :: (Int, Int) -> Y.YiString -> Maybe String
@@ -281,10 +284,48 @@ renderEditor focus e =
 --   let toRight = snd $ Y.splitAt column (snd $ Y.splitAtLine line s)
 --   in fmap (replicate 1) (Y.head toRight)
 
+-- copied from Brick.Widget.Core
+takeColumns :: Int -> Y.YiString -> Y.YiString
+takeColumns _ "" = ""
+takeColumns numCols y =
+    let maybeChar = Y.head y
+    in case maybeChar of
+        Nothing -> ""
+        Just c ->
+            let w = V.safeWcwidth c
+                cs = Y.tail y
+            in if w == numCols
+            then Y.cons c Y.empty
+            else if w < numCols
+                    then case cs of
+                        Just cs' -> Y.cons c (takeColumns (numCols - w) cs')
+                        Nothing  -> undefined
+                    else ""
+
+ySpace :: Y.YiString
+ySpace = Y.fromString " "
+
+-- copied from Brick.Widget.Core str
 tokens :: Y.YiString -> Widget n
 tokens y =
     Widget Fixed Fixed $ do
       c <- getContext
-      -- TODO: (see Brick.Widget.Core str)  return $ emptyResult & imageL .~ (V.vertCat lineImgs)
-      return $ emptyResult & imageL .~ V.text' (c ^. attrL) (Y.toText y)
+      let theLines = fixEmpty <$> (dropUnused . Y.lines) y
+          fixEmpty l = if l == Y.empty
+                        then ySpace
+                        else l
+        --   fixEmpty l  = l
+          dropUnused l = takeColumns (availWidth c) <$> take (availHeight c) l
+      case force theLines of
+          [] -> return emptyResult
+
+          -- TODO: render each token with it's correct attributes
+          [one] -> return $ emptyResult & imageL .~ V.text' (c^.attrL) (Y.toText one)
+
+          -- TODO: render each token with it's correct attributes
+          multiple ->
+              let maxLength = maximum $ Y.length <$> multiple
+                  lineImgs = lineImg <$> multiple
+                  lineImg lStr = V.text' (c^.attrL) $ Y.toText (lStr <> Y.replicate (maxLength - Y.length lStr) ySpace)
+              in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
