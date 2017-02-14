@@ -48,7 +48,7 @@ drawUI :: St -> [Widget EditorName]
 drawUI st = [ui]
     where
         e1 = E.renderEditor True (st^.edit1)
-        ui = C.center (str "Input 1 (unlimited): " <+> e1)
+        ui = C.center $ hLimit 30 (vLimit 5 e1)
 
 appEvent :: St -> BrickEvent EditorName (E.TokenizedEvent [GHC.Located GHC.Token]) -> EventM EditorName (Next St)
 appEvent st e =
