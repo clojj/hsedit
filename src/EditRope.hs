@@ -107,7 +107,6 @@ data Editor n =
            , editOperations :: [Operation]
            -- TODO: render tokens
            , editTokens     :: [GHC.Located GHC.Token]
-           , editViewport   :: V.DisplayRegion
            , editSendSource :: String -> IO ()
            }
 suffixLenses ''Editor
@@ -120,7 +119,7 @@ editor ::
        -- ^ The initial content
        -> (String -> IO ())
        -> Editor n
-editor name s = Editor s name (0, 0) [] [] (0, 0)
+editor name s = Editor s name (0, 0) [] []
 
 -- TODO orphane instance !
 instance TextWidth Y.YiString where
@@ -180,8 +179,6 @@ defaultDisplayRegion = (0, 0)
 
 handleEditorEvent :: Ord n => BrickEvent n (TokenizedEvent [GHC.Located GHC.Token]) -> Editor n -> EventM n (Editor n)
 handleEditorEvent e ed = do
-        viewPort <- lookupViewport (ed^.editorNameL)
-        -- liftIO $ hPutStrLn stderr $ "viewPort " ++ show viewPort
 
         let cp@(column, line) = ed ^. editCursorL
             contents = editContents ed
@@ -218,13 +215,13 @@ handleEditorEvent e ed = do
                   _ -> (Nothing, Nothing, Nothing)
 
             ed' = applyComposed [contentOp, cursorOp, metaOp] ed
-            ed'' = ed' & editViewportL .~ maybe defaultDisplayRegion _vpSize viewPort
 
         -- liftIO $ hPutStrLn stderr $ "operations: " ++ show (ed' ^. editOperationsL)
+
         case contentOp of
-          Nothing -> return ed''
+          Nothing -> return ed'
           -- TODO: call lexer only for actual changes to contents, not just change-operations
-          Just op -> sendToLexer $ consOp ed'' op
+          Just op -> sendToLexer $ consOp ed' op
 
 sendToLexer :: Editor n -> EventM n (Editor n)
 sendToLexer ed = do
@@ -275,8 +272,7 @@ renderEditor :: (Ord n, Show n)
              -- ^ The editor.
              -> Widget n
 renderEditor focus e =
-    let (viewWidth, viewHeight) = editViewport e
-        cp@(column, line) = e ^. editCursorL
+    let cp@(column, line) = e ^. editCursorL
         contents = e ^. editContentsL
         toLeft = Y.take column $ snd $ Y.splitAtLine line contents
         cursorLoc = Location (Y.length toLeft, line)
@@ -290,49 +286,26 @@ renderEditor focus e =
        (if focus then showCursor (e^.editorNameL) cursorLoc else id) $
        visibleRegion cursorLoc (1, 1) $
     --    visibleRegion cursorLoc (atCharWidth, 1) $
-       tokens (viewWidth, viewHeight) $ getEditContents e
+       tokens $ getEditContents e
 
 -- charAtCursor :: (Int, Int) -> Y.YiString -> Maybe String
 -- charAtCursor (column, line) s =
 --   let toRight = snd $ Y.splitAt column (snd $ Y.splitAtLine line s)
 --   in fmap (replicate 1) (Y.head toRight)
 
--- copied from Brick.Widget.Core
-takeColumns :: Int -> Y.YiString -> Y.YiString
-takeColumns _ "" = ""
-takeColumns numCols y =
-    let maybeChar = Y.head y
-    in case maybeChar of
-        Nothing -> ""
-        Just c ->
-            let w = V.safeWcwidth c
-                cs = Y.tail y
-            in if w == numCols
-            then Y.cons c Y.empty
-            else if w < numCols
-                    then case cs of
-                        Just cs' -> Y.cons c (takeColumns (numCols - w) cs')
-                        Nothing  -> y
-                    else ""
-
 ySpace :: Y.YiString
 ySpace = Y.fromString " "
 
 -- copied from Brick.Widget.Core str
-tokens :: (Int, Int) -> Y.YiString -> Widget n
-tokens (vwidth, vheight) y =
+tokens :: Y.YiString -> Widget n
+tokens y =
     Widget Fixed Fixed $ do
       c <- getContext
-      let theLines = fixEmpty <$> (dropUnused . Y.lines) y
+      let theLines = fixEmpty <$> Y.lines y
           fixEmpty l = if l == Y.empty
                         then ySpace
                         else l
-        --   TODO: probably should remove or modify this... availWidht/Height is not optimal (= 10000)
-          dropUnused l = takeColumns (availWidth c) <$> take (availHeight c) l
 
-        --   TODO: use vwidth and vheight !
-
-    --   case force (trace ("viewport " ++ show (vwidth, vheight)) theLines) of
       case force theLines of
           [] -> return emptyResult
 
