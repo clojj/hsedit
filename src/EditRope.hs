@@ -27,6 +27,8 @@ module EditRope
   , editAttr
   , editFocusedAttr
   , TokenizedEvent(..)
+  -- for Spec.hs
+  , renderTokensForLine
   )
 where
 
@@ -50,9 +52,9 @@ import qualified GHC
 import qualified Lexer                  as GHC
 
 import           Control.DeepSeq
+import qualified Data.Text              as T
 import           Debug.Trace
 import           System.IO
-
 
 newtype TokenizedEvent a = Tokens a
   deriving Show
@@ -259,7 +261,7 @@ editFocusedAttr = editAttr <> "focused"
 
 -- | Get the contents of the editor.
 getEditContents :: Editor n -> Y.YiString
-getEditContents e = e^.editContentsL
+getEditContents = editContents
 
 -- | Turn an editor state value into a widget. This uses the editor's
 -- name for its scrollable viewport handle and the name is also used to
@@ -280,13 +282,13 @@ renderEditor focus e =
         -- atChar = charAtCursor cp $ e ^. editContentsL
         -- atCharWidth = maybe 1 textWidth atChar
 
-    in withAttr (attrName "ITinteger") $
+    in withAttr editFocusedAttr $
        viewport (e^.editorNameL) Both $
     --    clickable (e^.editorNameL) $
        (if focus then showCursor (e^.editorNameL) cursorLoc else id) $
        visibleRegion cursorLoc (1, 1) $
     --    visibleRegion cursorLoc (atCharWidth, 1) $
-       tokens $ getEditContents e
+       renderTokens (editTokens e) (getEditContents e)
 
 -- charAtCursor :: (Int, Int) -> Y.YiString -> Maybe String
 -- charAtCursor (column, line) s =
@@ -297,11 +299,12 @@ ySpace :: Y.YiString
 ySpace = Y.fromString " "
 
 -- copied from Brick.Widget.Core str
-tokens :: Y.YiString -> Widget n
-tokens y =
+renderTokens :: [GHC.Located GHC.Token] -> Y.YiString -> Widget n
+renderTokens ts str =
     Widget Fixed Fixed $ do
       c <- getContext
-      let theLines = fixEmpty <$> Y.lines y
+      let attrMap = c ^. ctxAttrMapL
+          theLines = fixEmpty <$> Y.lines str
           fixEmpty l = if l == Y.empty
                         then ySpace
                         else l
@@ -310,7 +313,8 @@ tokens y =
           [] -> return emptyResult
 
           -- TODO: render each token with it's correct attributes
-          [one] -> return $ emptyResult & imageL .~ V.text' (c^.attrL) (Y.toText one)
+        --   [one] -> return $ emptyResult & imageL .~ V.text' (attrMapLookup (attrName "ITinteger") attrMap) (Y.toText one)
+          [one] -> return $ emptyResult & imageL .~ renderTokensForLine ts attrMap (Y.toText one)
 
           -- TODO: render each token with it's correct attributes
           multiple ->
@@ -319,3 +323,21 @@ tokens y =
                   lineImg lStr = V.text' (c^.attrL) $ Y.toText (lStr <> Y.replicate (maxLength - Y.length lStr) ySpace)
               in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
+
+renderTokensForLine :: [GHC.Located GHC.Token] -> AttrMap -> T.Text -> V.Image
+renderTokensForLine ts attrMap text =
+  
+  -- TODO: without reverse..?
+  V.horizCat . reverse $ go ts attrMap text []
+  
+  where go ts attrMap text result =
+          case ts of
+            []                 -> V.text' V.defAttr " " : result
+            token : tailTokens ->
+              let (GHC.RealSrcSpan loc) = GHC.getLoc token
+                  [l1, c1, l2, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
+                  name = tokenAsString (GHC.unLoc token)
+                  lexeme = "todo"
+                  img = V.text' (attrMapLookup (attrName name) attrMap) lexeme
+              in go tailTokens attrMap text (img : result)
+  -- [V.text' (attrMapLookup (attrName "ITinteger") attrs) t]

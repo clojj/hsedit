@@ -80,7 +80,7 @@ theApp =
     M.App { M.appDraw = drawUI
           , M.appChooseCursor = M.showFirstCursor
           , M.appHandleEvent = appEvent
-          , M.appStartEvent = return
+          , M.appStartEvent = return -- TODO: initial tokenization !
           , M.appAttrMap = const theMap
           }
 

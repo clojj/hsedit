@@ -24,6 +24,7 @@ library
                      , microlens
                      , vty
                      , deepseq
+                     , text
   default-language:    Haskell2010
 
 executable hsedit-exe
@@ -41,6 +42,7 @@ executable hsedit-exe
                      , microlens-th
                      , microlens-mtl
                      , vty
+                     , text
   default-language:    Haskell2010
 
 test-suite hsedit-test
@@ -49,6 +51,11 @@ test-suite hsedit-test
   main-is:             Spec.hs
   build-depends:       base
                      , hsedit
+                     , text
+                     , brick
+                     , vty
+                     , yi-rope
+                     , hspec
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
