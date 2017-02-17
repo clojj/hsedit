@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE BangPatterns          #-}
 
 -- The editor's 'HandleEvent' instance handles a set of basic input
 -- events that should suffice for most purposes; see the source for a
@@ -332,12 +333,14 @@ renderTokensForLine ts attrMap text =
   
   where go ts attrMap text result =
           case ts of
-            []                 -> V.text' V.defAttr " " : result
+            []                 -> V.text' V.defAttr text : result
             token : tailTokens ->
               let (GHC.RealSrcSpan loc) = GHC.getLoc token
-                  [l1, c1, l2, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
-                  name = tokenAsString (GHC.unLoc token)
-                  lexeme = "todo"
-                  img = V.text' (attrMapLookup (attrName name) attrMap) lexeme
-              in go tailTokens attrMap text (img : result)
+                  !pos@[_, c1, _, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
+                  -- TODO: get ws from text
+                  ws = " " :: T.Text
+                  wsImg = V.text' (attrMapLookup (attrName "WS") attrMap) ws
+                  tokenStr = tokenAsString (GHC.unLoc token)
+                  tokenImg = V.text' (attrMapLookup (attrName tokenStr) attrMap) $ (T.take (c2 - c1) . T.drop (c1 - 1)) text
+              in go tailTokens attrMap (T.drop c2 text) (tokenImg : wsImg : result)
   -- [V.text' (attrMapLookup (attrName "ITinteger") attrs) t]
