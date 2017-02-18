@@ -30,6 +30,7 @@ module EditRope
   , TokenizedEvent(..)
   -- for Spec.hs
   , renderTokensForLine
+  , getAttr
   )
 where
 
@@ -305,6 +306,7 @@ renderTokens ts str =
     Widget Fixed Fixed $ do
       c <- getContext
       let attrMap = c ^. ctxAttrMapL
+          -- TODO: convert lines to type Text
           theLines = fixEmpty <$> Y.lines str
           fixEmpty l = if l == Y.empty
                         then ySpace
@@ -325,22 +327,50 @@ renderTokens ts str =
               in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
 
+-- TODO: Reader Monad instead of all these AttrMap parameters ?
+getAttr :: AttrMap -> String -> V.Attr
+getAttr m name = attrMapLookup (attrName name) m
+
+sub1 :: Int -> Int
+sub1 x = x - 1
+
+subText :: Int -> Int -> T.Text -> T.Text
+subText pos len text = (T.take len . T.drop pos) text
+
+-- TODO: precondition: multiline tokens have been split !
 renderTokensForLine :: [GHC.Located GHC.Token] -> AttrMap -> T.Text -> V.Image
 renderTokensForLine ts attrMap text =
   
-  -- TODO: without reverse..?
-  V.horizCat . reverse $ go ts attrMap text []
+  -- TODO: without reverse, use Seq ..?
+  let (pos, imgs) = foldl' foldIt (0, []) ts
+      tEnd = T.drop pos text
+  in V.horizCat . reverse $ V.text' (getAttr attrMap "WS") tEnd : imgs
   
-  where go ts attrMap text result =
-          case ts of
-            []                 -> V.text' V.defAttr text : result
-            token : tailTokens ->
-              let (GHC.RealSrcSpan loc) = GHC.getLoc token
-                  !pos@[_, c1, _, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
-                  -- TODO: get ws from text
-                  ws = " " :: T.Text
-                  wsImg = V.text' (attrMapLookup (attrName "WS") attrMap) ws
-                  tokenStr = tokenAsString (GHC.unLoc token)
-                  tokenImg = V.text' (attrMapLookup (attrName tokenStr) attrMap) $ (T.take (c2 - c1) . T.drop (c1 - 1)) text
-              in go tailTokens attrMap (T.drop c2 text) (tokenImg : wsImg : result)
-  -- [V.text' (attrMapLookup (attrName "ITinteger") attrs) t]
+  where 
+    foldIt :: (Int, [V.Image]) -> GHC.Located GHC.Token -> (Int, [V.Image])
+    foldIt (pos, theImages) theToken = 
+      let (GHC.RealSrcSpan location) = GHC.getLoc theToken
+          [c1, c2] = [sub1 . GHC.srcSpanStartCol, sub1 . GHC.srcSpanEndCol] <*> [location]
+          tokenStr = tokenAsString (GHC.unLoc theToken)
+          tokenLen = c2 - c1
+          tokenImage = V.text' (getAttr attrMap tokenStr) (subText c1 tokenLen text)
+          diff = c1 - pos
+          newImages =
+            if diff > 0
+              then [tokenImage, V.text' (getAttr attrMap "WS") (subText pos diff text)]
+              else [tokenImage]
+      in (c2, newImages <> theImages)
+
+  -- V.horizCat . reverse $ go ts attrMap text []
+  -- where go ts attrMap text result =
+  --         case ts of
+  --           []                 -> V.text' V.defAttr text : result
+  --           token : tailTokens ->
+  --             let (GHC.RealSrcSpan loc) = GHC.getLoc token
+  --                 [_, c1, _, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
+  --                 -- TODO: get ws from text
+  --                 ws = " " :: T.Text
+  --                 wsImg = V.text' (attrMapLookup (attrName "WS") attrMap) ws
+  --                 tokenStr = tokenAsString (GHC.unLoc token)
+  --                 tokenImg = V.text' (attrMapLookup (attrName tokenStr) attrMap) $ (T.take (c2 - c1) . T.drop (c1 - 1)) text
+  --             in go tailTokens attrMap (T.drop c2 text) (tokenImg : wsImg : result)

@@ -1,39 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import qualified Brick.AttrMap      as A
 import           EditRope
 import qualified Graphics.Vty       as V
 import           Test.Hspec
-import           Brick.Util             (on)
 
-import qualified GHC
-import qualified Lexer                  as GHC
-import qualified FastString             as GHC
-
-
-attrMap :: A.AttrMap
-attrMap = A.attrMap V.defAttr
-    [ (editAttr, V.white `on` V.black)
-     ,(A.attrName "ITinteger", V.withStyle (V.green `on` V.black) V.bold)
-    ]
+import TestHelper
 
 main :: IO ()
-main = do
-
-  let lineABC = " abc"
-      tokensEmpty = []
-      tokens1 = [GHC.L (GHC.mkSrcSpan (GHC.mkSrcLoc (GHC.fsLit "") 1 2) (GHC.mkSrcLoc (GHC.fsLit "") 1 5)) $ GHC.ITvarid (GHC.fsLit "abc")]
-      
-  hspec $
+main = hspec $
 
     -- renderTokensForLine :: [GHC.Located GHC.Token] -> AttrMap -> T.Text -> V.Image
     describe "renders a tokenized line of Text" $ do
     
       it "renders original line, if there are no tokens" $ 
-        renderTokensForLine tokensEmpty attrMap lineABC `shouldBe` V.text' V.defAttr lineABC
+        renderTokensForLine [] attrMap lineABC `shouldBe`
+          V.text' V.defAttr lineABC
 
-      it "renders beginning of line and 1 token" $ 
-        renderTokensForLine tokens1 attrMap lineABC `shouldBe` V.text' V.defAttr lineABC
+      it "renders line with 1 token; leading and trailing whitespace" $ 
+        renderTokensForLine tokensLineABC attrMap lineABC `shouldBe`
+          V.horizCat [
+              V.text' V.defAttr " "
+            , V.text' (getAttr attrMap "ITvarid") "abc"
+            , V.text' V.defAttr " "
+            ]
 
       it "TODO: multiline comments" $ 
+        False
+
+      it "TODO: evaluate API Annotations" $ 
         False
