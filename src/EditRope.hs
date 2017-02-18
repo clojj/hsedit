@@ -44,7 +44,6 @@ import qualified Graphics.Vty           as V
 import qualified Yi.Rope                as Y
 
 import           Brick.AttrMap
-import           Brick.Main
 import           Brick.Types
 import           Brick.Widgets.Core
 
@@ -56,7 +55,6 @@ import qualified Lexer                  as GHC
 import           Control.DeepSeq
 import qualified Data.Text              as T
 import           Debug.Trace
-import           System.IO
 
 newtype TokenizedEvent a = Tokens a
   deriving Show

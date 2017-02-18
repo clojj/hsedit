@@ -39,9 +39,8 @@ data EditorName =
   Edit1 | Edit2
   deriving (Ord, Show, Eq)
 
-data St =
-    St { _edit1     :: E.Editor EditorName
-       }
+newtype St =
+    St { _edit1     :: E.Editor EditorName }
 makeLenses ''St
 
 drawUI :: St -> [Widget EditorName]
