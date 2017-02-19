@@ -1,5 +1,7 @@
-fix Lexer Error (example: unclosed string)
+Spec.hs
+  fixEmptyLines
+  TODO: multiline comments
 
-implement fixEmptyLines
+fix Lexer Error (example: unclosed string)
 
 investigate usefulness of debouncing (key-)input events
