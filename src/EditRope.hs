@@ -52,6 +52,8 @@ import           Control.Monad.IO.Class
 import           Data.Data
 import qualified GHC
 import qualified Lexer                  as GHC
+import qualified FastString             as GHC
+import qualified SrcLoc                 as GHC
 
 import           Control.DeepSeq
 import qualified Data.Text              as T
@@ -296,8 +298,44 @@ renderEditor focus e =
 --   let toRight = snd $ Y.splitAt column (snd $ Y.splitAtLine line s)
 --   in fmap (replicate 1) (Y.head toRight)
 
-ySpace :: Y.YiString
-ySpace = Y.fromString " "
+type Token = GHC.Located GHC.Token
+
+mkLocatedToken :: Int -> Int -> Int -> Int -> GHC.Token -> GHC.Located GHC.Token
+mkLocatedToken lin1 col1 lin2 col2 = 
+  GHC.L (GHC.mkSrcSpan 
+    (GHC.mkSrcLoc (GHC.fsLit "") lin1 col1)
+    (GHC.mkSrcLoc (GHC.fsLit "") lin2 col2))
+
+splitMultilineTokens :: [Token] -> [Token]
+splitMultilineTokens =
+  concatMap splitToken 
+  where
+    splitToken :: Token -> [Token]
+    splitToken token = 
+      let (GHC.RealSrcSpan location) = GHC.getLoc token
+          [l1, c1, l2, c2] = sub1 <$> ([GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [location])
+          theToken = GHC.unLoc token
+      in split l1 c1 l2 c2 theToken
+        where
+          split l1 c1 l2 c2 theToken
+            | l2 - l1 > 1 = [firstToken] ++ [mkLocatedToken l 1 0 0 theToken | l <- [l1+1..l2-1]] ++ [lastToken]
+            | l2 - l1 > 0 = [firstToken, lastToken]
+            | otherwise = [token]
+            where
+              firstToken = mkLocatedToken l1 c1 0 0 theToken
+              lastToken  = mkLocatedToken l2 1 l2 c2 theToken
+
+splitLineTokens :: Int -> [Token] -> ([Token], [Token])
+splitLineTokens l = span (compareLine (l >=))
+
+compareLine :: (Int -> Bool) -> Token -> Bool
+compareLine f token =
+  let (GHC.RealSrcSpan location) = GHC.getLoc token
+      l1 = GHC.srcSpanStartLine location
+  in f l1
+
+tSpace :: T.Text
+tSpace = " "
 
 -- copied from Brick.Widget.Core str
 renderTokens :: [GHC.Located GHC.Token] -> Y.YiString -> Widget n
@@ -305,24 +343,24 @@ renderTokens ts str =
     Widget Fixed Fixed $ do
       c <- getContext
       let attrMap = c ^. ctxAttrMapL
-          -- TODO: convert lines to type Text
-          theLines = fixEmpty <$> Y.lines str
-          fixEmpty l = if l == Y.empty
-                        then ySpace
+          theLines = fixEmpty . Y.toText <$> Y.lines str
+          fixEmpty l = if l == T.empty
+                        then tSpace
                         else l
+
+      -- TODO 1: create lines of tokens [[GHC.Located GHC.Token]] (replaces [] here)
+      -- TODO 2: let lists of tokens be reverted
 
       case force theLines of
           [] -> return emptyResult
 
-          [one] -> return $ emptyResult & imageL .~ renderTokensForLine attrMap ts (Y.toText one)
+          [oneLine] -> return $ emptyResult & imageL .~ renderTokensForLine attrMap ts oneLine
 
           -- TODO: render each token with it's correct attributes
-          multiple ->
-              let maxLength = maximum $ Y.length <$> multiple
-                  lineImgs = lineImg <$> multiple
-                  -- TODO 1: create lines of tokens [[GHC.Located GHC.Token]] (replaces [] here)
-                  -- TODO 2: let lists of tokens be reverted
-                  lineImg lStr = renderTokensForLine attrMap [] $ Y.toText (lStr <> Y.replicate (maxLength - Y.length lStr) ySpace)
+          multipleLines ->
+              let maxLength = maximum $ T.length <$> multipleLines
+                  lineImgs = lineImg <$> multipleLines
+                  lineImg lStr = renderTokensForLine attrMap [] $ lStr <> T.replicate (maxLength - T.length lStr) tSpace
               in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
 

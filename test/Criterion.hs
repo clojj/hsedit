@@ -16,5 +16,6 @@ main = do
                    bench "original line" $ whnf (toTest []) lineABC
                  , bench "lineABC" $ whnf (toTest tokensLineABC) lineABC
                  , bench "lineABC_123" $ whnf (toTest tokensLineABC_123) lineABC_123
+                 , bench "lineABC_123_rev" $ whnf (toTest tokensLineABC_123_rev) lineABC_123
                  ]
     ]

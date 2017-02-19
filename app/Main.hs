@@ -72,6 +72,7 @@ theMap :: A.AttrMap
 theMap = A.attrMap V.defAttr
     [ (E.editAttr, V.white `on` V.black)
      ,(A.attrName "ITinteger", V.withStyle (V.green `on` V.black) V.bold)
+     ,(A.attrName "ITvarid", V.withStyle (V.blue `on` V.black) V.bold)
     ]
 
 theApp :: M.App St (E.TokenizedEvent [GHC.Located GHC.Token]) EditorName
@@ -91,11 +92,12 @@ main = do
   liftIO $ startGhc eventChannel lexerChannel
 
   let callback = putMVar lexerChannel
-  trigger <- Fdeb.new Fdeb.Args { Fdeb.cb = callback, Fdeb.fold = \_ i -> i, Fdeb.init = "" }
-                      Fdeb.def { Fdeb.delay = 500000 }
-  let sendSource = Fdeb.send trigger
-
-  let initSt = initialState sendSource
+  -- trigger <- Fdeb.new Fdeb.Args { Fdeb.cb = callback, Fdeb.fold = \_ i -> i, Fdeb.init = "" }
+  --                     Fdeb.def { Fdeb.delay = 100000 }
+  -- let sendSource = Fdeb.send trigger
+  -- let initSt = initialState sendSource
+  let initSt = initialState callback
+  
   st <- M.customMain (V.mkVty V.defaultConfig) (Just eventChannel) theApp initSt
 
   putStrLn "In input 1 you entered:\n"
