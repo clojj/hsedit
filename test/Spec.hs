@@ -1,15 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 import           EditRope
 import qualified Graphics.Vty       as V
 import           Test.Hspec
 
 import TestHelper
+import qualified GHC
+import Types
 
+instance Show Token where
+  show = showToken
+  
+instance Eq GHC.Token where
+  -- TODO: it's a hack ! don't use show here !
+  x == y = show x == show y
+  
 main :: IO ()
-main = hspec $
+main = hspec $ do
 
-    -- renderTokensForLine :: [GHC.Located GHC.Token] -> AttrMap -> T.Text -> V.Image
     describe "renders a tokenized line of Text" $ do
     
       it "renders original line, if there are no tokens" $ 
@@ -47,8 +57,19 @@ main = hspec $
             ]
 
 -- TODOs
+
       it "TODO: multiline comments" $ 
         False
 
       it "TODO: evaluate API Annotations" $ 
         False
+
+
+    describe "fixes empty lines with empty token-list" $
+    
+      it "fixes empty lines" $ do
+        let ls = ["line1", "", "line3"]
+        let ts = [[], []]
+        fixEmptyLines ls ts `shouldBe`
+          [("line1", []), ("", []), ("line3", [])]
+

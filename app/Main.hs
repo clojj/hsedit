@@ -92,10 +92,13 @@ main = do
   liftIO $ startGhc eventChannel lexerChannel
 
   let callback = putMVar lexerChannel
+  
+  -- TODO: this debounces input events
   -- trigger <- Fdeb.new Fdeb.Args { Fdeb.cb = callback, Fdeb.fold = \_ i -> i, Fdeb.init = "" }
   --                     Fdeb.def { Fdeb.delay = 100000 }
   -- let sendSource = Fdeb.send trigger
   -- let initSt = initialState sendSource
+  
   let initSt = initialState callback
   
   st <- M.customMain (V.mkVty V.defaultConfig) (Just eventChannel) theApp initSt

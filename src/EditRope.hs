@@ -32,6 +32,8 @@ module EditRope
   , renderTokensForLine
   , renderTokensForLineReverse
   , getAttr
+  , fixEmptyLines
+  , showToken
   )
 where
 
@@ -58,6 +60,9 @@ import qualified SrcLoc                 as GHC
 import           Control.DeepSeq
 import qualified Data.Text              as T
 import           Debug.Trace
+
+import Types
+
 
 newtype TokenizedEvent a = Tokens a
   deriving Show
@@ -298,8 +303,6 @@ renderEditor focus e =
 --   let toRight = snd $ Y.splitAt column (snd $ Y.splitAtLine line s)
 --   in fmap (replicate 1) (Y.head toRight)
 
-type Token = GHC.Located GHC.Token
-
 mkLocatedToken :: Int -> Int -> Int -> Int -> GHC.Token -> GHC.Located GHC.Token
 mkLocatedToken lin1 col1 lin2 col2 = 
   GHC.L (GHC.mkSrcSpan 
@@ -325,15 +328,25 @@ splitMultilineTokens =
               firstToken = mkLocatedToken l1 c1 0 0 theToken
               lastToken  = mkLocatedToken l2 1 l2 c2 theToken
 
-splitLineTokens :: Int -> [Token] -> ([Token], [Token])
-splitLineTokens l = span (compareLine (l >=))
+-- splitLineTokens :: Int -> [Token] -> ([Token], [Token])
+-- splitLineTokens l = span (compareLine (l >=))
+-- 
+-- compareLine :: (Int -> Bool) -> Token -> Bool
+-- compareLine f token =
+--   let (GHC.RealSrcSpan location) = GHC.getLoc token
+--       l1 = GHC.srcSpanStartLine location
+--   in f l1
 
-compareLine :: (Int -> Bool) -> Token -> Bool
-compareLine f token =
+getLineStart :: Token -> Int
+getLineStart token =
   let (GHC.RealSrcSpan location) = GHC.getLoc token
-      l1 = GHC.srcSpanStartLine location
-  in f l1
+  in GHC.srcSpanStartLine location
 
+fixEmptyLines :: [T.Text] -> [[Token]] -> [(T.Text, [Token])]
+fixEmptyLines ls tss =
+  -- TODO: fix it
+  zip ls tss
+  
 tSpace :: T.Text
 tSpace = " "
 
@@ -348,9 +361,15 @@ renderTokens ts str =
                         then tSpace
                         else l
 
-      -- TODO 1: create lines of tokens [[GHC.Located GHC.Token]] (replaces [] here)
-      -- TODO 2: let lists of tokens be reverted
-
+          splitTokens = splitMultilineTokens ts
+          
+          -- TODO 2: optimization ? ...let lists of tokens be reverted; groupBy is NOT reverted !
+          lineTokens = groupBy (\t1 t2 -> getLineStart t1 == getLineStart t2) splitTokens
+          -- !tmp = trace ("DEBUG " ++ concat (showToken <$> concat lineTokens)) lineTokens
+          
+          -- TODO: fix tokens for empty lines: fixEmptyLines
+          linesWithTokens = fixEmptyLines theLines lineTokens
+          
       case force theLines of
           [] -> return emptyResult
 
@@ -359,8 +378,8 @@ renderTokens ts str =
           -- TODO: render each token with it's correct attributes
           multipleLines ->
               let maxLength = maximum $ T.length <$> multipleLines
-                  lineImgs = lineImg <$> multipleLines
-                  lineImg lStr = renderTokensForLine attrMap [] $ lStr <> T.replicate (maxLength - T.length lStr) tSpace
+                  lineImgs = lineImg <$> linesWithTokens
+                  lineImg (lStr, ts) = renderTokensForLine attrMap ts $ lStr <> T.replicate (maxLength - T.length lStr) tSpace
               in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
 
@@ -373,7 +392,6 @@ sub1 x = x - 1
 subText :: Int -> Int -> T.Text -> T.Text
 subText pos len text = (T.take len . T.drop pos) text
 
--- TODO 1: precondition: multiline tokens have been split !
 renderTokensForLine :: AttrMap -> [GHC.Located GHC.Token] -> T.Text -> V.Image
 renderTokensForLine attrMap ts text =
   
@@ -396,7 +414,6 @@ renderTokensForLine attrMap ts text =
               else [tokenImage]
       in (c2, newImages <> theImages)
 
--- TODO 1: precondition: multiline tokens have been split !
 renderTokensForLineReverse :: AttrMap -> [GHC.Located GHC.Token] -> T.Text -> V.Image
 renderTokensForLineReverse attrMap ts text =
   
