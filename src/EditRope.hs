@@ -30,6 +30,7 @@ module EditRope
   , TokenizedEvent(..)
   -- for Spec.hs
   , renderTokensForLine
+  , renderTokensForLineReverse
   , getAttr
   )
 where
@@ -313,19 +314,18 @@ renderTokens ts str =
       case force theLines of
           [] -> return emptyResult
 
-          -- TODO: render each token with it's correct attributes
-        --   [one] -> return $ emptyResult & imageL .~ V.text' (attrMapLookup (attrName "ITinteger") attrMap) (Y.toText one)
-          [one] -> return $ emptyResult & imageL .~ renderTokensForLine ts attrMap (Y.toText one)
+          [one] -> return $ emptyResult & imageL .~ renderTokensForLine attrMap ts (Y.toText one)
 
           -- TODO: render each token with it's correct attributes
           multiple ->
               let maxLength = maximum $ Y.length <$> multiple
                   lineImgs = lineImg <$> multiple
-                  lineImg lStr = V.text' (c^.attrL) $ Y.toText (lStr <> Y.replicate (maxLength - Y.length lStr) ySpace)
+                  -- TODO 1: create lines of tokens [[GHC.Located GHC.Token]] (replaces [] here)
+                  -- TODO 2: let lists of tokens be reverted
+                  lineImg lStr = renderTokensForLine attrMap [] $ Y.toText (lStr <> Y.replicate (maxLength - Y.length lStr) ySpace)
               in return $ emptyResult & imageL .~ V.vertCat lineImgs
 
 
--- TODO: Reader Monad instead of all these AttrMap parameters ?
 getAttr :: AttrMap -> String -> V.Attr
 getAttr m name = attrMapLookup (attrName name) m
 
@@ -335,14 +335,13 @@ sub1 x = x - 1
 subText :: Int -> Int -> T.Text -> T.Text
 subText pos len text = (T.take len . T.drop pos) text
 
--- TODO: precondition: multiline tokens have been split !
-renderTokensForLine :: [GHC.Located GHC.Token] -> AttrMap -> T.Text -> V.Image
-renderTokensForLine ts attrMap text =
+-- TODO 1: precondition: multiline tokens have been split !
+renderTokensForLine :: AttrMap -> [GHC.Located GHC.Token] -> T.Text -> V.Image
+renderTokensForLine attrMap ts text =
   
-  -- TODO: without reverse, use Seq ..?
   let (pos, imgs) = foldl' foldIt (0, []) ts
-      tEnd = T.drop pos text
-  in V.horizCat . reverse $ V.text' (getAttr attrMap "WS") tEnd : imgs
+      textEnd = T.drop pos text
+  in V.horizCat . reverse $ V.text' (getAttr attrMap "WS") textEnd : imgs
   
   where 
     foldIt :: (Int, [V.Image]) -> GHC.Located GHC.Token -> (Int, [V.Image])
@@ -359,16 +358,26 @@ renderTokensForLine ts attrMap text =
               else [tokenImage]
       in (c2, newImages <> theImages)
 
-  -- V.horizCat . reverse $ go ts attrMap text []
-  -- where go ts attrMap text result =
-  --         case ts of
-  --           []                 -> V.text' V.defAttr text : result
-  --           token : tailTokens ->
-  --             let (GHC.RealSrcSpan loc) = GHC.getLoc token
-  --                 [_, c1, _, c2] = [GHC.srcSpanStartLine, GHC.srcSpanStartCol, GHC.srcSpanEndLine, GHC.srcSpanEndCol] <*> [loc]
-  --                 -- TODO: get ws from text
-  --                 ws = " " :: T.Text
-  --                 wsImg = V.text' (attrMapLookup (attrName "WS") attrMap) ws
-  --                 tokenStr = tokenAsString (GHC.unLoc token)
-  --                 tokenImg = V.text' (attrMapLookup (attrName tokenStr) attrMap) $ (T.take (c2 - c1) . T.drop (c1 - 1)) text
-  --             in go tailTokens attrMap (T.drop c2 text) (tokenImg : wsImg : result)
+-- TODO 1: precondition: multiline tokens have been split !
+renderTokensForLineReverse :: AttrMap -> [GHC.Located GHC.Token] -> T.Text -> V.Image
+renderTokensForLineReverse attrMap ts text =
+  
+  let (pos, imgs) = foldl' foldIt (T.length text, []) ts
+      textStart = T.take pos text
+  in V.horizCat $ V.text' (getAttr attrMap "WS") textStart : imgs
+  
+  where 
+    foldIt :: (Int, [V.Image]) -> GHC.Located GHC.Token -> (Int, [V.Image])
+    foldIt (pos, theImages) theToken = 
+      let (GHC.RealSrcSpan location) = GHC.getLoc theToken
+          [c1, c2] = [sub1 . GHC.srcSpanStartCol, sub1 . GHC.srcSpanEndCol] <*> [location]
+          tokenStr = tokenAsString (GHC.unLoc theToken)
+          tokenLen = c2 - c1
+          tokenImage = V.text' (getAttr attrMap tokenStr) (subText c1 tokenLen text)
+          diff = pos - c2
+          newImages =
+            if diff > 0
+              then [tokenImage, V.text' (getAttr attrMap "WS") (subText c2 diff text)]
+              else [tokenImage]
+      in (c1, newImages <> theImages)
+

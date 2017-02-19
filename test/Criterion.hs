@@ -9,12 +9,12 @@ import TestHelper
 main :: IO ()
 main = do
 
-  let toTestEmpty = renderTokensForLine [] attrMap
-      toTestLineABC = renderTokensForLine tokensLineABC attrMap
+  let toTest = renderTokensForLine attrMap
 
   defaultMain [
     bgroup "renderTokensForLine" [
-                   bench "original line" $ whnf toTestEmpty lineABC
-                 , bench "lineABC" $ whnf toTestLineABC lineABC
+                   bench "original line" $ whnf (toTest []) lineABC
+                 , bench "lineABC" $ whnf (toTest tokensLineABC) lineABC
+                 , bench "lineABC_123" $ whnf (toTest tokensLineABC_123) lineABC_123
                  ]
     ]

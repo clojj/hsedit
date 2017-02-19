@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module TestHelper 
-  (lineABC, tokensLineABC, attrMap, mkLocatedToken)
-where 
+module TestHelper where 
   
 import qualified Brick.AttrMap      as A
 import           EditRope
@@ -28,5 +26,8 @@ mkLocatedToken lin1 col1 lin2 col2 =
     (GHC.mkSrcLoc (GHC.fsLit "") lin2 col2))
 
 lineABC = " abc " :: T.Text
-
 tokensLineABC = [mkLocatedToken 1 2 1 5 $ GHC.ITvarid (GHC.fsLit "abc")]
+
+lineABC_123 = " abc 123 " :: T.Text
+tokensLineABC_123 = [mkLocatedToken 1 2 1 5 $ GHC.ITvarid (GHC.fsLit "abc"), mkLocatedToken 1 6 1 9 $ GHC.ITinteger "123" 123]
+tokensLineABC_123_rev = [mkLocatedToken 1 6 1 9 $ GHC.ITinteger "123" 123, mkLocatedToken 1 2 1 5 $ GHC.ITvarid (GHC.fsLit "abc")]
